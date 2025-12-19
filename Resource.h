@@ -6,12 +6,14 @@
 
 #define IDR_MAINFRAME			128
 #define IDD_WP1_DIALOG	102
-#define IDD_ABOUTBOX			103
+#define IDD_ABOUTBOX			112
 #define IDM_ABOUT				104
 #define IDM_EXIT				105
 #define IDI_WP1			107
 #define IDI_SMALL				108
+#define IDI_GRUP				110
 #define IDC_WP1			109
+#define IDC_GRUP				111
 #define IDC_MYICON				2
 #ifndef IDC_STATIC
 #define IDC_STATIC				-1

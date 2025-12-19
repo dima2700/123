@@ -26,18 +26,20 @@ enum AppState {
     STATE_MENU,
     STATE_GAME1,
     STATE_GAME2,
-    STATE_GAME3
+    STATE_GAME3,
+    STATE_GAME4
 };
 
 AppState currentState = STATE_MENU;
 
 // Кнопки ГЛАВНОГО МЕНЮ
-HWND hBtnMenuGame1, hBtnMenuGame2, hBtnMenuGame3;
+HWND hBtnMenuGame1, hBtnMenuGame2, hBtnMenuGame3, hBtnMenuGame4;
 
 #define ID_BTN_MENU_1   1
 #define ID_BTN_MENU_2   2
 #define ID_BTN_MENU_3   3
-#define ID_BTN_BACK     4 
+#define ID_BTN_MENU_4   4
+#define ID_BTN_BACK     5 
 
 // =========================================================
 // 1. КЛАСС ИГРЫ "ВИКТОРИНА (ФЛАГИ)"
@@ -410,27 +412,402 @@ HWND GameTwo::hBackButton = nullptr;
 
 
 // =========================================================
-// 3. ПУСТОЙ КЛАСС ИГРЫ №3
+// 3. КЛАСС ИГРЫ "ГЕОГРАФИЧЕСКАЯ ВИКТОРИНА"
 // =========================================================
 class GameThree {
 public:
+    struct Question {
+        wstring question;
+        vector<wstring> answers;
+        int correctAnswer;
+    };
+
     static void Init(HWND hWnd) {
         hBackButton = CreateWindowW(L"BUTTON", L"Меню", WS_CHILD | BS_PUSHBUTTON,
             10, 10, 80, 30, hWnd, (HMENU)ID_BTN_BACK, hInst, nullptr);
+        
         HFONT hFont = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
         SendMessage(hBackButton, WM_SETFONT, (WPARAM)hFont, TRUE);
+
+        int cx = WIN_W / 2;
+        for (int i = 0; i < 4; i++) {
+            hAnswerButtons[i] = CreateWindowW(L"BUTTON", L"...", WS_CHILD | BS_PUSHBUTTON,
+                cx - 200, 250 + i * 60, 400, 50, hWnd, (HMENU)(2001 + i), hInst, nullptr);
+            SendMessage(hAnswerButtons[i], WM_SETFONT, (WPARAM)hFont, TRUE);
+        }
+
+        hRestartButton = CreateWindowW(L"BUTTON", L"ИГРАТЬ ЗАНОВО", WS_CHILD | BS_PUSHBUTTON,
+            cx - 100, 500, 200, 40, hWnd, (HMENU)2005, hInst, nullptr);
+        SendMessage(hRestartButton, WM_SETFONT, (WPARAM)hFont, TRUE);
+
+        InitQuestions();
     }
+
     static void SetVisible(bool visible) {
-        ShowWindow(hBackButton, visible ? SW_SHOW : SW_HIDE);
+        int cmd = visible ? SW_SHOW : SW_HIDE;
+        ShowWindow(hBackButton, cmd);
+        for (int i = 0; i < 4; i++) ShowWindow(hAnswerButtons[i], cmd);
+        if (visible) Reset();
+        if (!visible) ShowWindow(hRestartButton, SW_HIDE);
     }
+
     static void OnPaint(HDC hdc) {
-        TextOutW(hdc, 100, 100, L"ЭТО ТРЕТЬЯ ИГРА", 15);
+        int cx = WIN_W / 2;
+        if (gameOver) {
+            wstring msg = L"ИГРА ОКОНЧЕНА!";
+            SetTextColor(hdc, RGB(0, 150, 0));
+            TextOutW(hdc, cx - 70, 200, msg.c_str(), msg.length());
+            SetTextColor(hdc, RGB(0, 0, 0));
+            
+            wstring scoreMsg = L"Ваш счет: " + to_wstring(score) + L" / " + to_wstring(questions.size() * 10);
+            TextOutW(hdc, cx - 80, 240, scoreMsg.c_str(), scoreMsg.length());
+        }
+        else {
+            if (currentQuestionIndex < questions.size()) {
+                wstring stat = L"Вопрос " + to_wstring(currentQuestionIndex + 1) + L" из " + 
+                              to_wstring(questions.size()) + L" | Очки: " + to_wstring(score);
+                TextOutW(hdc, cx - 100, 30, stat.c_str(), stat.length());
+
+                RECT r = { 50, 80, WIN_W - 50, 200 };
+                DrawTextW(hdc, questions[currentQuestionIndex].question.c_str(), -1, &r, 
+                         DT_CENTER | DT_WORDBREAK | DT_TOP);
+
+                for (int i = 0; i < 4; i++) {
+                    SetWindowTextW(hAnswerButtons[i], questions[currentQuestionIndex].answers[i].c_str());
+                }
+            }
+        }
     }
-    static void OnCommand(HWND hWnd, int id) {}
+
+    static void OnCommand(HWND hWnd, int id) {
+        if (gameOver) {
+            if (id == 2005) {
+                Reset();
+                InvalidateRect(hWnd, nullptr, TRUE);
+            }
+            return;
+        }
+
+        if (answered) return;
+
+        for (int i = 0; i < 4; i++) {
+            if (id == 2001 + i) {
+                selectedAnswer = i;
+                answered = true;
+                if (i == questions[currentQuestionIndex].correctAnswer) {
+                    score += 10;
+                    MessageBoxW(hWnd, L"Правильно! +10 очков", L"Правильный ответ", MB_OK | MB_ICONINFORMATION);
+                }
+                else {
+                    wstring correct = L"Неправильно! Правильный ответ: " + 
+                                    questions[currentQuestionIndex].answers[questions[currentQuestionIndex].correctAnswer];
+                    MessageBoxW(hWnd, correct.c_str(), L"Неправильный ответ", MB_OK | MB_ICONEXCLAMATION);
+                }
+                
+                currentQuestionIndex++;
+                if (currentQuestionIndex >= questions.size()) {
+                    gameOver = true;
+                    ShowWindow(hRestartButton, SW_SHOW);
+                    for (int j = 0; j < 4; j++) EnableWindow(hAnswerButtons[j], FALSE);
+                }
+                else {
+                    answered = false;
+                    selectedAnswer = -1;
+                }
+                InvalidateRect(hWnd, nullptr, TRUE);
+                break;
+            }
+        }
+    }
+
 private:
+    static vector<Question> questions;
+    static int currentQuestionIndex;
+    static int score;
+    static bool answered;
+    static bool gameOver;
+    static int selectedAnswer;
     static HWND hBackButton;
+    static HWND hAnswerButtons[4];
+    static HWND hRestartButton;
+
+    static void InitQuestions() {
+        if (!questions.empty()) return;
+        questions = {
+            { L"Какая столица Франции?", {L"Лондон", L"Париж", L"Берлин", L"Мадрид"}, 1 },
+            { L"Какая самая большая страна в мире?", {L"Китай", L"США", L"Россия", L"Канада"}, 2 },
+            { L"Какая столица Японии?", {L"Сеул", L"Пекин", L"Токио", L"Бангкок"}, 2 },
+            { L"Какая река самая длинная в мире?", {L"Амазонка", L"Нил", L"Янцзы", L"Миссисипи"}, 1 },
+            { L"Какая самая высокая гора в мире?", {L"К2", L"Эверест", L"Килиманджаро", L"Монблан"}, 1 },
+            { L"Какая столица Австралии?", {L"Сидней", L"Мельбурн", L"Канберра", L"Брисбен"}, 2 },
+            { L"Какая столица Бразилии?", {L"Рио-де-Жанейро", L"Сан-Паулу", L"Бразилиа", L"Сальвадор"}, 2 },
+            { L"Какая столица Египта?", {L"Александрия", L"Каир", L"Гиза", L"Луксор"}, 1 },
+            { L"Какая столица Канады?", {L"Торонто", L"Ванкувер", L"Оттава", L"Монреаль"}, 2 },
+            { L"Какая столица Индии?", {L"Мумбаи", L"Дели", L"Калькутта", L"Бангалор"}, 1 }
+        };
+    }
+
+    static void Reset() {
+        score = 0;
+        currentQuestionIndex = 0;
+        answered = false;
+        gameOver = false;
+        selectedAnswer = -1;
+        unsigned seed = (unsigned)chrono::system_clock::now().time_since_epoch().count();
+        shuffle(questions.begin(), questions.end(), default_random_engine(seed));
+        for (int i = 0; i < 4; i++) EnableWindow(hAnswerButtons[i], TRUE);
+        ShowWindow(hRestartButton, SW_HIDE);
+    }
 };
+
+vector<GameThree::Question> GameThree::questions;
+int GameThree::currentQuestionIndex = 0;
+int GameThree::score = 0;
+bool GameThree::answered = false;
+bool GameThree::gameOver = false;
+int GameThree::selectedAnswer = -1;
 HWND GameThree::hBackButton = nullptr;
+HWND GameThree::hAnswerButtons[4] = { nullptr, nullptr, nullptr, nullptr };
+HWND GameThree::hRestartButton = nullptr;
+
+
+// =========================================================
+// 4. КЛАСС ИГРЫ "ПЕРЕТАСКИВАНИЕ СТОЛИЦ"
+// =========================================================
+class GameFour {
+public:
+    struct DragTask {
+        wstring country;
+        wstring capital;
+        int countryX, countryY;
+        int capitalX, capitalY;
+        bool matched;
+    };
+
+    static void Init(HWND hWnd) {
+        hWndParent = hWnd;
+        hBackButton = CreateWindowW(L"BUTTON", L"Меню", WS_CHILD | BS_PUSHBUTTON,
+            10, 10, 80, 30, hWnd, (HMENU)ID_BTN_BACK, hInst, nullptr);
+        
+        HFONT hFont = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+        SendMessage(hBackButton, WM_SETFONT, (WPARAM)hFont, TRUE);
+
+        InitTasks();
+        Reset();
+    }
+
+    static void SetVisible(bool visible) {
+        int cmd = visible ? SW_SHOW : SW_HIDE;
+        ShowWindow(hBackButton, cmd);
+        if (visible) {
+            Reset();
+            InvalidateRect(hWndParent, nullptr, TRUE);
+        }
+    }
+
+    static void OnPaint(HDC hdc) {
+        int cx = WIN_W / 2;
+        
+        if (allMatched) {
+            wstring msg = L"ВСЕ СТОЛИЦЫ СОПОСТАВЛЕНЫ!";
+            SetTextColor(hdc, RGB(0, 150, 0));
+            TextOutW(hdc, cx - 120, 250, msg.c_str(), msg.length());
+            SetTextColor(hdc, RGB(0, 0, 0));
+            
+            wstring scoreMsg = L"Вы набрали: " + to_wstring(score) + L" из " + to_wstring(tasks.size()) + L" очков!";
+            TextOutW(hdc, cx - 100, 290, scoreMsg.c_str(), scoreMsg.length());
+        }
+        else {
+            wstring scoreMsg = L"Счет: " + to_wstring(score) + L" / " + to_wstring(tasks.size());
+            TextOutW(hdc, cx - 50, 30, scoreMsg.c_str(), scoreMsg.length());
+
+            wstring instruction = L"Перетащите столицы к соответствующим странам";
+            TextOutW(hdc, cx - 180, 70, instruction.c_str(), instruction.length());
+
+            for (size_t i = 0; i < tasks.size(); i++) {
+                if (!tasks[i].matched) {
+                    // Рисуем страны (слева)
+                    RECT countryRect = { tasks[i].countryX, tasks[i].countryY, 
+                                       tasks[i].countryX + 200, tasks[i].countryY + 40 };
+                    Rectangle(hdc, countryRect.left, countryRect.top, countryRect.right, countryRect.bottom);
+                    SetBkMode(hdc, TRANSPARENT);
+                    DrawTextW(hdc, tasks[i].country.c_str(), -1, &countryRect, 
+                            DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+                    // Рисуем зоны сброса
+                    RECT dropRect = { tasks[i].countryX + 220, tasks[i].countryY,
+                                     tasks[i].countryX + 420, tasks[i].countryY + 40 };
+                    HBRUSH hBrush = CreateHatchBrush(HS_BDIAGONAL, RGB(200, 200, 200));
+                    FrameRect(hdc, &dropRect, hBrush);
+                    DeleteObject(hBrush);
+
+                    // Рисуем столицы (справа)
+                    int capX = (draggingIndex == (int)i && isDragging) ? dragX : tasks[i].capitalX;
+                    int capY = (draggingIndex == (int)i && isDragging) ? dragY : tasks[i].capitalY;
+                    
+                    RECT capitalRect = { capX, capY, capX + 200, capY + 40 };
+                    HBRUSH capBrush = CreateSolidBrush(RGB(255, 165, 0));
+                    FillRect(hdc, &capitalRect, capBrush);
+                    DeleteObject(capBrush);
+                    Rectangle(hdc, capitalRect.left, capitalRect.top, capitalRect.right, capitalRect.bottom);
+                    SetBkMode(hdc, TRANSPARENT);
+                    DrawTextW(hdc, tasks[i].capital.c_str(), -1, &capitalRect,
+                            DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                }
+                else {
+                    // Рисуем правильно сопоставленные
+                    RECT countryRect = { tasks[i].countryX, tasks[i].countryY,
+                                       tasks[i].countryX + 200, tasks[i].countryY + 40 };
+                    HBRUSH matchedBrush = CreateSolidBrush(RGB(144, 238, 144));
+                    FillRect(hdc, &countryRect, matchedBrush);
+                    DeleteObject(matchedBrush);
+                    Rectangle(hdc, countryRect.left, countryRect.top, countryRect.right, countryRect.bottom);
+                    DrawTextW(hdc, tasks[i].country.c_str(), -1, &countryRect,
+                            DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+                    RECT capitalRect = { tasks[i].countryX + 220, tasks[i].countryY,
+                                       tasks[i].countryX + 420, tasks[i].countryY + 40 };
+                    FillRect(hdc, &capitalRect, matchedBrush);
+                    DeleteObject(matchedBrush);
+                    Rectangle(hdc, capitalRect.left, capitalRect.top, capitalRect.right, capitalRect.bottom);
+                    DrawTextW(hdc, tasks[i].capital.c_str(), -1, &capitalRect,
+                            DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                }
+            }
+            SetBkMode(hdc, OPAQUE);
+        }
+    }
+
+    static void OnLButtonDown(int x, int y) {
+        if (allMatched) return;
+        
+        for (size_t i = 0; i < tasks.size(); i++) {
+            if (!tasks[i].matched && 
+                x >= tasks[i].capitalX && x <= tasks[i].capitalX + 200 &&
+                y >= tasks[i].capitalY && y <= tasks[i].capitalY + 40) {
+                isDragging = true;
+                draggingIndex = (int)i;
+                originalCapitalX = tasks[i].capitalX;
+                originalCapitalY = tasks[i].capitalY;
+                dragX = tasks[i].capitalX;
+                dragY = tasks[i].capitalY;
+                dragOffsetX = x - tasks[i].capitalX;
+                dragOffsetY = y - tasks[i].capitalY;
+                InvalidateRect(hWndParent, nullptr, TRUE);
+                break;
+            }
+        }
+    }
+
+    static void OnMouseMove(int x, int y) {
+        if (isDragging && draggingIndex >= 0) {
+            dragX = x - dragOffsetX;
+            dragY = y - dragOffsetY;
+            InvalidateRect(hWndParent, nullptr, TRUE);
+        }
+    }
+
+    static void OnLButtonUp(int x, int y) {
+        if (!isDragging || draggingIndex < 0) return;
+
+        // Проверяем, попали ли в зону сброса
+        for (size_t i = 0; i < tasks.size(); i++) {
+            if (!tasks[i].matched &&
+                x >= tasks[i].countryX + 220 && x <= tasks[i].countryX + 420 &&
+                y >= tasks[i].countryY && y <= tasks[i].countryY + 40) {
+                
+                // Проверяем правильность
+                if (draggingIndex == (int)i) {
+                    tasks[i].matched = true;
+                    score++;
+                    MessageBoxW(hWndParent, L"Правильно!", L"Успех", MB_OK | MB_ICONINFORMATION);
+                    
+                    // Проверяем, все ли сопоставлено
+                    allMatched = true;
+                    for (const auto& task : tasks) {
+                        if (!task.matched) {
+                            allMatched = false;
+                            break;
+                        }
+                    }
+                }
+                else {
+                    MessageBoxW(hWndParent, L"Неправильно! Попробуйте еще раз.", L"Ошибка", MB_OK | MB_ICONEXCLAMATION);
+                    tasks[draggingIndex].capitalX = originalCapitalX;
+                    tasks[draggingIndex].capitalY = originalCapitalY;
+                }
+                break;
+            }
+        }
+
+        if (!tasks[draggingIndex].matched) {
+            tasks[draggingIndex].capitalX = originalCapitalX;
+            tasks[draggingIndex].capitalY = originalCapitalY;
+        }
+
+        isDragging = false;
+        draggingIndex = -1;
+        InvalidateRect(hWndParent, nullptr, TRUE);
+    }
+
+    static void OnCommand(HWND hWnd, int id) {}
+
+private:
+    static vector<DragTask> tasks;
+    static int score;
+    static bool allMatched;
+    static bool isDragging;
+    static int draggingIndex;
+    static int dragX, dragY;
+    static int dragOffsetX, dragOffsetY;
+    static int originalCapitalX, originalCapitalY;
+    static HWND hBackButton;
+    static HWND hWndParent;
+
+    static void InitTasks() {
+        if (!tasks.empty()) return;
+        tasks = {
+            { L"Франция", L"Париж", 150, 150, 650, 150 },
+            { L"Россия", L"Москва", 150, 220, 650, 220 },
+            { L"Япония", L"Токио", 150, 290, 650, 290 },
+            { L"Бразилия", L"Бразилиа", 150, 360, 650, 360 },
+            { L"Египет", L"Каир", 150, 430, 650, 430 }
+        };
+    }
+
+    static void Reset() {
+        score = 0;
+        allMatched = false;
+        isDragging = false;
+        draggingIndex = -1;
+        
+        // Перемешиваем позиции столиц
+        vector<pair<int, int>> positions;
+        for (const auto& task : tasks) {
+            positions.push_back({ task.capitalX, task.capitalY });
+        }
+        
+        unsigned seed = (unsigned)chrono::system_clock::now().time_since_epoch().count();
+        shuffle(positions.begin(), positions.end(), default_random_engine(seed));
+        
+        for (size_t i = 0; i < tasks.size(); i++) {
+            tasks[i].matched = false;
+            tasks[i].capitalX = positions[i].first;
+            tasks[i].capitalY = positions[i].second;
+        }
+    }
+};
+
+vector<GameFour::DragTask> GameFour::tasks;
+int GameFour::score = 0;
+bool GameFour::allMatched = false;
+bool GameFour::isDragging = false;
+int GameFour::draggingIndex = -1;
+int GameFour::dragX = 0, GameFour::dragY = 0;
+int GameFour::dragOffsetX = 0, GameFour::dragOffsetY = 0;
+int GameFour::originalCapitalX = 0, GameFour::originalCapitalY = 0;
+HWND GameFour::hBackButton = nullptr;
+HWND GameFour::hWndParent = nullptr;
 
 
 // =========================================================
@@ -442,6 +819,7 @@ void SetMenuVisible(bool visible) {
     ShowWindow(hBtnMenuGame1, cmd);
     ShowWindow(hBtnMenuGame2, cmd);
     ShowWindow(hBtnMenuGame3, cmd);
+    ShowWindow(hBtnMenuGame4, cmd);
 }
 
 void ChangeState(AppState newState, HWND hWnd) {
@@ -449,6 +827,7 @@ void ChangeState(AppState newState, HWND hWnd) {
     else if (currentState == STATE_GAME1) GeoGame::SetVisible(false);
     else if (currentState == STATE_GAME2) GameTwo::SetVisible(false);
     else if (currentState == STATE_GAME3) GameThree::SetVisible(false);
+    else if (currentState == STATE_GAME4) GameFour::SetVisible(false);
 
     currentState = newState;
 
@@ -456,6 +835,7 @@ void ChangeState(AppState newState, HWND hWnd) {
     else if (currentState == STATE_GAME1) GeoGame::SetVisible(true);
     else if (currentState == STATE_GAME2) GameTwo::SetVisible(true);
     else if (currentState == STATE_GAME3) GameThree::SetVisible(true);
+    else if (currentState == STATE_GAME4) GameFour::SetVisible(true);
 
     InvalidateRect(hWnd, nullptr, TRUE);
 }
@@ -507,23 +887,35 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
     case WM_CREATE:
     {
         HFONT hFont = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
-        int cx = WIN_W / 2 - 100;
+        int cx = WIN_W / 2;
+        int btnWidth = 250;
+        int btnHeight = 45;
+        int startY = 180;
+        int spacing = 60;
 
-        hBtnMenuGame1 = CreateWindowW(L"BUTTON", L"Назови страну по флагу", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, cx, 200, 200, 50, hWnd, (HMENU)ID_BTN_MENU_1, hInst, nullptr);
-        hBtnMenuGame2 = CreateWindowW(L"BUTTON", L"Угадай страну по карте", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, cx, 270, 200, 50, hWnd, (HMENU)ID_BTN_MENU_2, hInst, nullptr);
-        hBtnMenuGame3 = CreateWindowW(L"BUTTON", L"Игра 3 (Пусто)", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, cx, 340, 200, 50, hWnd, (HMENU)ID_BTN_MENU_3, hInst, nullptr);
+        hBtnMenuGame1 = CreateWindowW(L"BUTTON", L"Назови страну по флагу", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 
+            cx - btnWidth / 2, startY, btnWidth, btnHeight, hWnd, (HMENU)ID_BTN_MENU_1, hInst, nullptr);
+        hBtnMenuGame2 = CreateWindowW(L"BUTTON", L"Угадай страну по карте", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 
+            cx - btnWidth / 2, startY + spacing, btnWidth, btnHeight, hWnd, (HMENU)ID_BTN_MENU_2, hInst, nullptr);
+        hBtnMenuGame3 = CreateWindowW(L"BUTTON", L"Географическая викторина", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 
+            cx - btnWidth / 2, startY + spacing * 2, btnWidth, btnHeight, hWnd, (HMENU)ID_BTN_MENU_3, hInst, nullptr);
+        hBtnMenuGame4 = CreateWindowW(L"BUTTON", L"Перетаскивание столиц", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 
+            cx - btnWidth / 2, startY + spacing * 3, btnWidth, btnHeight, hWnd, (HMENU)ID_BTN_MENU_4, hInst, nullptr);
 
         SendMessage(hBtnMenuGame1, WM_SETFONT, (WPARAM)hFont, TRUE);
         SendMessage(hBtnMenuGame2, WM_SETFONT, (WPARAM)hFont, TRUE);
         SendMessage(hBtnMenuGame3, WM_SETFONT, (WPARAM)hFont, TRUE);
+        SendMessage(hBtnMenuGame4, WM_SETFONT, (WPARAM)hFont, TRUE);
 
         GeoGame::Init(hWnd);
         GameTwo::Init(hWnd);
         GameThree::Init(hWnd);
+        GameFour::Init(hWnd);
 
         GeoGame::SetVisible(false);
         GameTwo::SetVisible(false);
         GameThree::SetVisible(false);
+        GameFour::SetVisible(false);
     }
     break;
 
@@ -533,15 +925,33 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         if (wmId == ID_BTN_MENU_1) ChangeState(STATE_GAME1, hWnd);
         else if (wmId == ID_BTN_MENU_2) ChangeState(STATE_GAME2, hWnd);
         else if (wmId == ID_BTN_MENU_3) ChangeState(STATE_GAME3, hWnd);
+        else if (wmId == ID_BTN_MENU_4) ChangeState(STATE_GAME4, hWnd);
         else if (wmId == ID_BTN_BACK) ChangeState(STATE_MENU, hWnd);
         else if (currentState == STATE_GAME1) GeoGame::OnCommand(hWnd, wmId);
         else if (currentState == STATE_GAME2) GameTwo::OnCommand(hWnd, wmId);
+        else if (currentState == STATE_GAME3) GameThree::OnCommand(hWnd, wmId);
+        else if (currentState == STATE_GAME4) GameFour::OnCommand(hWnd, wmId);
     }
     break;
 
     case WM_LBUTTONDOWN:
         if (currentState == STATE_GAME2) {
             GameTwo::OnLButtonDown(hWnd, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+        }
+        else if (currentState == STATE_GAME4) {
+            GameFour::OnLButtonDown(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+        }
+        break;
+
+    case WM_MOUSEMOVE:
+        if (currentState == STATE_GAME4) {
+            GameFour::OnMouseMove(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+        }
+        break;
+
+    case WM_LBUTTONUP:
+        if (currentState == STATE_GAME4) {
+            GameFour::OnLButtonUp(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
         }
         break;
 
@@ -566,6 +976,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
         else if (currentState == STATE_GAME1) GeoGame::OnPaint(hdc);
         else if (currentState == STATE_GAME2) GameTwo::DrawAll(hWnd, hdc);
         else if (currentState == STATE_GAME3) GameThree::OnPaint(hdc);
+        else if (currentState == STATE_GAME4) GameFour::OnPaint(hdc);
         EndPaint(hWnd, &ps);
     }
     break;
